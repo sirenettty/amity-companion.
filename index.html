@@ -1,0 +1,257 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>ИИ-Компаньон Amity</title>
+
+  <!-- Markdown & Syntax Highlighting -->
+  <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/github-dark.min.css">
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
+  <!-- DOMPurify: санитизация HTML -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/dompurify/3.1.6/purify.min.js"></script>
+
+  <link rel="stylesheet" href="style.css">
+</head>
+<body class="theme-dark emotion-joy" data-emotion="joy">
+
+  <!-- Кинематографичный фон и частицы -->
+  <div class="os-background-wrap">
+    <div class="os-gradient-sphere sphere-1"></div>
+    <div class="os-gradient-sphere sphere-2"></div>
+    <div class="os-gradient-sphere sphere-3"></div>
+    <div class="os-particles" id="osParticles"></div>
+    <div class="os-vignette"></div>
+  </div>
+
+  <!-- Фон-видео для анимаций -->
+  <video id="bgVideo" autoplay loop muted playsinline style="display:none; position:fixed; top:0; left:0; width:100%; height:100%; object-fit:cover; z-index:-1; pointer-events:none; filter: brightness(0.4);"></video>
+
+  <!-- Скрытые инпуты для загрузки файлов -->
+  <input type="file" id="filePicker" accept="image/*" style="display:none;">
+  <input type="file" id="bgPicker" accept="image/*,video/mp4,video/webm" style="display:none;">
+  <input type="file" id="imageInputPicker" accept="image/*" style="display:none;">
+  <input type="file" id="docInputPicker" accept=".txt,.md,.csv,.json,.js,.py,.html,.css,.log" style="display:none;">
+  <input type="file" id="importJsonPicker" accept=".json" style="display:none;">
+  <input type="file" id="personaAvatarInput" accept="image/*" style="display:none;">
+
+  <!-- MODAL: GALLERY -->
+  <div class="modal-overlay" id="galleryModal">
+    <div class="modal">
+      <button class="modal-close" onclick="UI.closeGalleryModal()">×</button>
+      <h3 style="margin-top:0;">🖼️ Галерея изображений</h3>
+      <p style="font-size:12px; color:var(--text-faint); margin:-8px 0 14px;">Фото и картинки, сгенерированные через /draw, из текущего диалога.</p>
+      <div id="galleryGrid" class="gallery-grid"></div>
+    </div>
+  </div>
+
+  <!-- MODAL: LIGHTBOX -->
+  <div class="modal-overlay" id="lightboxModal">
+    <div class="modal lightbox-modal">
+      <button class="modal-close" onclick="UI.closeLightbox()">×</button>
+      <img id="lightboxImg" src="" alt="">
+    </div>
+  </div>
+
+  <!-- MODAL: SEARCH -->
+  <div class="modal-overlay" id="searchModal">
+    <div class="modal">
+      <button class="modal-close" onclick="UI.closeSearchModal()">×</button>
+      <h3 style="margin-top:0;">🔍 Поиск по истории</h3>
+      <input type="text" id="searchInput" placeholder="Начни печатать..." oninput="UI.runSearch(this.value)">
+      <div id="searchResults" class="search-results"></div>
+    </div>
+  </div>
+
+  <!-- MODAL: PERSONAS -->
+  <div class="modal-overlay" id="personaModal">
+    <div class="modal">
+      <button class="modal-close" onclick="UI.closePersonaModal()">×</button>
+      <h3 style="margin-top:0;">🎭 Персоны</h3>
+      <div id="personaListBox" class="persona-list"></div>
+      <hr style="border-color:var(--border); margin:18px 0; opacity:0.5;">
+      <p style="font-size:12px; color:var(--text-faint); margin:0 0 12px;">Создать новую или отредактировать выбранную:</p>
+      <input type="hidden" id="personaFormId">
+      <label>Имя персоны</label>
+      <input type="text" id="personaFormName" placeholder="Например: Amity">
+      <label>Системный промпт (характер)</label>
+      <textarea id="personaFormPrompt" rows="4" placeholder="Опиши характер и стиль общения..."></textarea>
+      <label>Аватар</label>
+      <div class="avatar-row">
+        <img id="personaFormAvatarPreview" class="avatar-preview" src="">
+        <button class="header-btn" onclick="document.getElementById('personaAvatarInput').click()">Загрузить фото</button>
+      </div>
+      <div class="btn-grid" style="margin-top:12px;">
+        <button class="header-btn" onclick="UI.resetPersonaForm()">✕ Очистить</button>
+        <button class="setup-btn" style="margin-top:0;" onclick="UI.savePersonaForm()">💾 Сохранить</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- MODAL: SETTINGS -->
+  <div class="modal-overlay" id="settingsModal">
+    <div class="modal">
+      <button class="modal-close" onclick="UI.closeSettingsModal()">×</button>
+      <h3 style="margin-top:0;">⚙️ Настройки Компаньона</h3>
+      <div class="tts-section">
+        <label style="color: var(--primary); font-weight: bold;">🎨 Оформление и звук:</label>
+        <div class="btn-grid" style="margin-top:0;">
+          <button class="header-btn" id="soundToggleBtn" onclick="SoundModule.toggleSound()">🔔 Звук: Вкл</button>
+          <button class="header-btn" onclick="UI.pickBackground()">🖼️ Фон/GIF</button>
+        </div>
+        <button class="header-btn" style="width:100%; margin-top:8px;" onclick="UI.resetBackground()">↺ Сбросить стандартный фон</button>
+      </div>
+      <div class="tts-section">
+        <label style="color: var(--primary); font-weight: bold;">🧠 Долгосрочная память:</label>
+        <textarea id="longTermMemoryInput" rows="3" placeholder="Важные факты о вас..."></textarea>
+      </div>
+      <div class="tts-section">
+        <label style="color: var(--primary); font-weight: bold;">🔊 Голос:</label>
+        <div class="voice-row">
+          <select id="voiceSelect" style="flex:1; margin-bottom:0;"></select>
+          <button class="header-btn" style="padding: 12px;" onclick="SpeechModule.testSelectedVoice()">🔊 Тест</button>
+        </div>
+      </div>
+      <label>Креативность / Температура (<span id="tempValue">0.7</span>):</label>
+      <div class="range-container">
+        <input type="range" id="tempRange" min="0.1" max="1.0" step="0.05" value="0.7" oninput="UI.updateTempLabel(this.value)">
+      </div>
+
+      <!-- Блок настроек Ollama в модальном окне -->
+      <div id="settingsOllamaSection" style="display:none;" class="tts-section">
+        <label style="color: var(--primary); font-weight: bold;">🦙 Настройки Ollama:</label>
+        <label style="margin-top:6px;">Модель Ollama:</label>
+        <div class="voice-row">
+          <select id="settingsOllamaSelect" style="flex:1; margin-bottom:0;"></select>
+          <button class="header-btn" style="padding: 12px;" onclick="UI.refreshOllamaModelsList()">🔄 Обновить</button>
+        </div>
+        <p id="settingsOllamaStatus" style="font-size:11.5px; color:var(--text-faint); margin:6px 0 0;"></p>
+      </div>
+
+      <label>Системный Промпт:</label>
+      <textarea id="systemPromptInput" rows="4"></textarea>
+      <div class="tts-section" style="margin-top:10px;">
+        <label style="color: var(--primary); font-weight: bold;">💾 Расширенная история:</label>
+        <div class="btn-grid">
+          <button class="header-btn" onclick="HistoryModule.exportJSON()">📥 JSON</button>
+          <button class="header-btn" onclick="UI.triggerImportJSON()">📤 Импорт</button>
+          <button class="header-btn" onclick="HistoryModule.exportMarkdown()">📄 Markdown</button>
+          <button class="header-btn" onclick="HistoryModule.exportTXT()">📝 TXT</button>
+        </div>
+        <button class="header-btn" style="width:100%; margin-top:8px; color:var(--primary);" onclick="HistoryModule.summarizeAndCompress()">🧠 Сжать историю</button>
+        <button class="header-btn" style="width:100%; margin-top:4px; color:#f28b82;" onclick="HistoryModule.trimContext()">✂️ Срезать контекст</button>
+      </div>
+      <button class="setup-btn" onclick="SettingsModule.save()">Сохранить настройки</button>
+    </div>
+  </div>
+
+  <!-- SETUP SCREEN -->
+  <div id="setup">
+    <div class="setup-card">
+      <p class="setup-eyebrow">Запуск системы</p>
+      <h1 id="setupTitle">Компаньон Amity</h1>
+      <p>Привет! Я Amity — твоя новая цифровая подруга. Давай познакомимся поближе, чтобы наше общение было по-настоящему тёплым, личным и интересным.</p>
+      
+      <label for="userName">Как тебя зовут?</label>
+      <input type="text" id="userName" placeholder="Твоё имя...">
+
+      <label for="userInterests">Твои интересы и хобби</label>
+      <textarea id="userInterests" rows="2" placeholder="Например: программирование, книги, музыка, игры..."></textarea>
+
+      <label for="providerSelect">Провайдер API</label>
+      <select id="providerSelect" onchange="UI.updateProviderHint()">
+        <option value="groq">Groq API (GPT-OSS 120B)</option>
+        <option value="openai">OpenAI API</option>
+        <option value="gemini">Google Gemini API</option>
+        <option value="ollama">Ollama (Локально)</option>
+      </select>
+
+      <!-- Блок выбора модели Ollama на экране запуска -->
+      <div id="ollamaSetupSection" style="display:none;">
+        <label for="setupOllamaSelect">Модель Ollama</label>
+        <div class="voice-row" style="margin-bottom:12px;">
+          <select id="setupOllamaSelect" style="flex:1; margin-bottom:0;"></select>
+          <button class="header-btn" style="padding: 12px;" onclick="UI.refreshOllamaModelsList()">🔄 Обновить</button>
+        </div>
+        <p id="setupOllamaError" style="font-size:11.5px; color:#f43f5e; margin:-6px 0 12px; display:none;"></p>
+      </div>
+
+      <div id="keySection">
+        <label for="apiKey">API-ключ</label>
+        <input type="password" id="apiKey" placeholder="Вставь API-ключ...">
+        <p id="keyHint" style="font-size:11.5px; color:var(--text-faint); margin:-6px 0 12px;">Хранится только в sessionStorage.</p>
+      </div>
+      <button class="setup-btn" onclick="UI.startChat()">Запустить чат</button>
+    </div>
+  </div>
+
+  <!-- MAIN CHAT INTERFACE -->
+  <div id="chat">
+    <header>
+      <div class="avatar-live-wrapper" onclick="UI.pickAvatar('bot')" title="Сменить аватар">
+        <img id="headerAvatar" class="header-avatar" src="">
+        <div class="avatar-eyelid"></div>
+      </div>
+      <div class="header-info">
+        <div class="header-title-row">
+          <h2 id="botNameTitle">Amity</h2>
+          <span id="botEmotion" class="emotion-badge">😊 Рада видеть</span>
+          <span id="modelBadge" class="model-badge">🌐 Groq</span>
+        </div>
+        <div class="status" id="statusLine">готово | 0 токенов</div>
+      </div>
+      <div class="header-game-box">
+        <div class="relationship-container" title="Уровень лояльности и доверия">
+          <span class="rel-label">Лояльность: <b id="relScore">50</b>%</span>
+          <div class="rel-bar"><div id="relFill" class="rel-fill" style="width: 50%;"></div></div>
+        </div>
+        <select id="personaSelect" class="persona-dropdown" onchange="UI.selectPersona(this.value)"></select>
+        <button class="header-btn" onclick="UI.openPersonaModal()">✎ Персоны</button>
+      </div>
+      <div class="header-spacer"></div>
+      <button class="header-btn theme-toggle" id="themeToggleBtn" onclick="UI.toggleTheme()" title="День/Ночь">🌙</button>
+      <button class="header-btn" onclick="UI.openGalleryModal()" title="Галерея">🖼️ Галерея</button>
+      <button class="header-btn" onclick="UI.openSearchModal()" title="Поиск">🔍 Поиск</button>
+      <button class="header-btn" onclick="UI.openSettingsModal()">⚙️ Настройки</button>
+      <button class="header-btn" onclick="UI.clearHistoryUI()" title="Очистить">🗑️</button>
+      <button class="header-btn" onclick="UI.resetKey()">Сброс</button>
+    </header>
+    
+    <div id="messages"></div>
+
+    <div id="inputBar">
+      <div class="image-preview-container" id="imgPreviewBar">
+        <img id="previewImg" src="" alt="preview">
+        <span style="font-size:12px; color:var(--text-dim);">Фото прикреплено</span>
+        <button onclick="UI.clearAttachedImage()">✕</button>
+      </div>
+      <div class="image-preview-container" id="docPreviewBar">
+        <span style="font-size:18px;">📄</span>
+        <span style="font-size:12px; color:var(--text-dim);" id="docPreviewName">Файл прикреплён</span>
+        <button onclick="UI.clearAttachedDoc()">✕</button>
+      </div>
+      <div class="input-inner">
+        <button class="icon-btn" onclick="UI.pickInputImage()" title="Прикрепить фото">
+          <svg width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"></path><circle cx="12" cy="13" r="4"></circle></svg>
+        </button>
+        <button class="icon-btn" onclick="UI.pickInputDoc()" title="Прикрепить документ">
+          <svg width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"></path></svg>
+        </button>
+        <button id="micBtn" class="icon-btn" onclick="SpeechModule.toggleRecognition()" title="Голосовой ввод">
+          <svg width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"></path><path d="M19 10v2a7 7 0 0 1-14 0v-2"></path><line x1="12" y1="19" x2="12" y2="23"></line><line x1="8" y1="23" x2="16" y2="23"></line></svg>
+        </button>
+        <textarea id="textInput" rows="1" placeholder="Напиши Amity... /draw [текст] для картинки"></textarea>
+        <button id="sendBtn" onclick="UI.sendMessage()" title="Отправить">
+          <svg width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><line x1="22" y1="2" x2="11" y2="13"></line><polygon points="22 2 15 22 11 13 2 9 22 2"></polygon></svg>
+        </button>
+        <button id="stopBtn" onclick="UI.stopGeneration()" title="Стоп" style="display:none;">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><rect x="5" y="5" width="14" height="14" rx="2"></rect></svg>
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <script src="script.js"></script>
+</body>
+</html>
