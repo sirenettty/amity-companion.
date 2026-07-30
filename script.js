@@ -1,5 +1,5 @@
 /* ==========================================================================
-   ИИ-КОМПАНЬОН AMITY — МОДУЛЬНЫЙ СКРИПТ (COMPANION OS EDITION)
+   ИИ-КОМПАНЬОН AMITY — МОДУЛЬНЫЙ СКРИПТ (COMPANION OS v2)
    ========================================================================== */
 
 const DEFAULT_PERSONAS = [
@@ -11,8 +11,6 @@ const DEFAULT_PERSONAS = [
 
 const DEFAULT_AVATAR = "https://api.dicebear.com/7.x/bottts/svg?seed=AmityCompanion";
 
-// Общая защита от переполнения localStorage (частый случай с крупными фото/GIF в base64):
-// не даёт необработанному исключению прервать выполнение и молча сломать функциональность.
 function safeLocalStorageSet(key, value) {
   try {
     localStorage.setItem(key, value);
@@ -274,6 +272,7 @@ const HistoryModule = {
     if (State.history.length <= 3) return alert("История слишком мала!");
     UI.closeSettingsModal();
     UI.setThinkingState(true);
+    UI.setEmotion('Думает');
     try {
       const summary = await APIModule.requestSinglePrompt("Выдели главные факты нашего диалога коротко.");
       if (summary) {
@@ -286,6 +285,7 @@ const HistoryModule = {
       alert("Ошибка сжатия: " + err.message);
     } finally {
       UI.setThinkingState(false);
+      UI.setEmotion('В сети');
     }
   }
 };
@@ -305,6 +305,7 @@ const SpeechModule = {
       this.recognition.onend = () => {
         this.isRecording = false;
         document.getElementById('micBtn').classList.remove('recording');
+        UI.setEmotion('В сети');
       };
     }
     if ('speechSynthesis' in window) {
@@ -319,6 +320,7 @@ const SpeechModule = {
       this.recognition.start();
       this.isRecording = true;
       document.getElementById('micBtn').classList.add('recording');
+      UI.setEmotion('Ожидает');
     }
   },
   populateVoices() {
@@ -393,7 +395,7 @@ const APIModule = {
   },
   async fetchStream() {
     UI.setThinkingState(true);
-    UI.setEmotion('💭 Думает...');
+    UI.setEmotion('Думает');
     const { row: thinkingRow, div: botMsgDiv } = UI.addMessageRow('bot', '', 'thinking');
     
     botMsgDiv.innerHTML = '';
@@ -411,6 +413,7 @@ const APIModule = {
     }
 
     try {
+      UI.setEmotion('Отвечает');
       if (State.provider === 'gemini') {
         const cleanContents = State.history.map(m => ({ role: m.role, parts: m.parts || [{ text: m.content || '' }] }));
         const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:streamGenerateContent?alt=sse&key=${key}`, {
@@ -493,7 +496,7 @@ const APIModule = {
     } catch (err) {
       thinkingRow.remove();
       UI.addMessageRow('bot', `Ошибка: ${err.message}`, 'error');
-      UI.setEmotion('⚠️ Ошибка');
+      UI.setEmotion('Ошибка');
     } finally {
       UI.setThinkingState(false);
       this.currentController = null;
@@ -508,7 +511,7 @@ const UI = {
     this.updatePersonaHeader();
     this.refreshPersonaDropdown();
     this.updateRelationshipUI();
-    this.setEmotion('😊 Рада видеть');
+    this.setEmotion('В сети');
 
     document.getElementById('soundToggleBtn').textContent = State.soundEnabled ? '🔔 Звук: Вкл' : '🔕 Звук: Выкл';
 
@@ -519,10 +522,13 @@ const UI = {
     document.getElementById('importJsonPicker').addEventListener('change', (e) => this.handleImportJSON(e));
     document.getElementById('personaAvatarInput').addEventListener('change', (e) => this.handlePersonaAvatarSelect(e));
 
-    document.getElementById('textInput').addEventListener('keydown', (e) => {
+    const textInput = document.getElementById('textInput');
+    textInput.addEventListener('keydown', (e) => {
       if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); this.sendMessage(); }
     });
-    document.getElementById('textInput').addEventListener('input', () => this.autoResizeInput());
+    textInput.addEventListener('input', () => this.autoResizeInput());
+    textInput.addEventListener('focus', () => this.setEmotion('Печатает…'));
+    textInput.addEventListener('blur', () => { if (!textInput.value) this.setEmotion('В сети'); });
 
     document.addEventListener('keydown', (e) => {
       if (e.key === 'Escape') {
@@ -745,33 +751,53 @@ const UI = {
     this.resetPersonaForm();
   },
 
-  setEmotion(str) {
-    document.getElementById('botEmotion').textContent = str;
+  setEmotion(statusType) {
+    const badge = document.getElementById('botEmotion');
     const body = document.body;
     body.classList.remove('emotion-joy', 'emotion-thinking', 'emotion-warm', 'emotion-error');
-    
-    if (str.includes('Думает')) {
-      body.classList.add('emotion-thinking');
-      body.dataset.emotion = 'thinking';
-    } else if (str.includes('Тепло') || str.includes('❤️')) {
-      body.classList.add('emotion-warm');
-      body.dataset.emotion = 'warm';
-    } else if (str.includes('Ошибка')) {
-      body.classList.add('emotion-error');
-      body.dataset.emotion = 'error';
-    } else {
-      body.classList.add('emotion-joy');
-      body.dataset.emotion = 'joy';
+
+    switch (statusType) {
+      case 'Печатает…':
+        badge.textContent = '✍️ Печатает…';
+        body.classList.add('emotion-thinking');
+        body.dataset.emotion = 'thinking';
+        break;
+      case 'Думает':
+        badge.textContent = '💭 Думает';
+        body.classList.add('emotion-thinking');
+        body.dataset.emotion = 'thinking';
+        break;
+      case 'Отвечает':
+        badge.textContent = '⚡ Отвечает';
+        body.classList.add('emotion-joy');
+        body.dataset.emotion = 'joy';
+        break;
+      case 'Ожидает':
+        badge.textContent = '⏳ Ожидает';
+        body.classList.add('emotion-warm');
+        body.dataset.emotion = 'warm';
+        break;
+      case 'Ошибка':
+        badge.textContent = '⚠️ Ошибка';
+        body.classList.add('emotion-error');
+        body.dataset.emotion = 'error';
+        break;
+      case 'В сети':
+      default:
+        badge.textContent = '🟢 В сети';
+        body.classList.add('emotion-joy');
+        body.dataset.emotion = 'joy';
+        break;
     }
   },
 
   updateBotEmotionAndRelationship(text) {
     const t = text.toLowerCase();
     if (t.includes('спасибо') || t.includes('рад') || t.includes('❤️') || t.includes('обнима')) {
-      this.setEmotion('💖 Тепло на душе');
+      this.setEmotion('В сети');
       State.relationshipScore = Math.min(100, State.relationshipScore + 2);
     } else {
-      this.setEmotion('😊 Рада видеть');
+      this.setEmotion('В сети');
       State.relationshipScore = Math.min(100, State.relationshipScore + 1);
     }
     State.saveRelationshipScore();
@@ -851,7 +877,7 @@ const UI = {
     document.getElementById('setup').style.display = 'none';
     document.getElementById('chat').style.display = 'flex';
     this.updateModelHeader();
-    this.setEmotion('😊 Рада видеть');
+    this.setEmotion('В сети');
     this.addMessageRow('bot', `Привет, ${userName}! Я Amity, твоя личная цифровая подруга. Мне очень приятно познакомиться с тобой. Я уже немного узнала о твоих интересах, и мне кажется, нам будет интересно общаться вместе. Как твой день? 😊`);
   },
 
@@ -866,7 +892,7 @@ const UI = {
     document.getElementById('messages').innerHTML = '';
     HistoryModule.init();
     HistoryModule.save();
-    this.setEmotion('😊 Рада видеть');
+    this.setEmotion('В сети');
     this.addMessageRow('bot', 'Чат очищен. Начнем сначала? ✨');
   },
 
@@ -921,9 +947,6 @@ const UI = {
     return { row, div };
   },
 
-  // Кнопки "озвучить"/"копировать" под сообщением. Строятся через DOM, а не строкой
-  // HTML с текстом внутри onclick="..." — иначе кавычка или обратный слэш в тексте
-  // модели/пользователя могли бы вырваться из атрибута и выполнить произвольный JS.
   _buildMessageActions(role, text) {
     const actions = document.createElement('div');
     actions.className = 'msg-actions';
@@ -1005,9 +1028,6 @@ const UI = {
   openSearchModal() { document.getElementById('searchModal').style.display = 'flex'; setTimeout(() => document.getElementById('searchInput').focus(), 50); },
   closeSearchModal() { document.getElementById('searchModal').style.display = 'none'; },
 
-  // Раньше текст сообщения (snippet) вставлялся напрямую в innerHTML — если модель или
-  // пользователь когда-либо написали HTML-разметку в сообщении, она бы выполнилась в
-  // поиске. Строим результаты через textContent, это безопасно в любом случае.
   runSearch(query) {
     const box = document.getElementById('searchResults');
     box.innerHTML = '';
@@ -1104,13 +1124,11 @@ const UI = {
 
   pickBackground() { document.getElementById('bgPicker').click(); },
 
-  // Пытается сохранить значение в localStorage; если квота превышена (частый случай
-  // с крупными фото в base64) — не роняет приложение, а честно предупреждает пользователя.
   _safeSetItem(key, value) { return safeLocalStorageSet(key, value); },
 
   handleBgSelect(e) {
     const file = e.target.files[0];
-    e.target.value = ''; // чтобы повторный выбор того же файла тоже сработал (иначе change не сработает)
+    e.target.value = '';
     if (!file) return;
 
     const MAX_MB = 8;
@@ -1141,11 +1159,6 @@ const UI = {
     reader.readAsDataURL(file);
   },
 
-  // ВАЖНО: раньше фон применялся к document.body — но поверх body в разметке лежит
-  // .os-background-wrap (декоративный слой со сферами/частицами) на весь экран,
-  // и он полностью перекрывал собой любую картинку, выставленную на body.
-  // Теперь фон применяется к самому .os-background-wrap, а декоративные сферы
-  // и частицы на время скрываются, чтобы не мешать пользовательскому фото.
   applyBackground() {
     const wrap = document.querySelector('.os-background-wrap');
     const videoEl = document.getElementById('bgVideo');
@@ -1252,7 +1265,7 @@ const SettingsModule = {
   save() {
     State.temperature = parseFloat(document.getElementById('tempRange').value);
     State.systemPrompt = document.getElementById('systemPromptInput').value;
-    State.longTermMemory = document.getElementById('longTermMemoryInput').value;
+    State.longTermMemory = document.getElementById('longTermMemoryInput'].value;
     State.selectedVoiceURI = document.getElementById('voiceSelect').value;
 
     if (State.provider === 'ollama') {
