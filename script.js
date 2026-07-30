@@ -11,6 +11,18 @@ const DEFAULT_PERSONAS = [
 
 const DEFAULT_AVATAR = "https://api.dicebear.com/7.x/bottts/svg?seed=AmityCompanion";
 
+// Общая защита от переполнения localStorage (частый случай с крупными фото/GIF в base64):
+// не даёт необработанному исключению прервать выполнение и молча сломать функциональность.
+function safeLocalStorageSet(key, value) {
+  try {
+    localStorage.setItem(key, value);
+    return true;
+  } catch (err) {
+    console.warn('localStorage переполнен при записи ключа', key, err);
+    return false;
+  }
+}
+
 function renderSafeMarkdown(text) {
   const raw = marked.parse(text || '');
   if (window.DOMPurify) {
@@ -100,7 +112,7 @@ const State = {
   },
 
   savePersonas() {
-    localStorage.setItem('personas_list', JSON.stringify(this.personas));
+    return safeLocalStorageSet('personas_list', JSON.stringify(this.personas));
   },
 
   relationshipKey(personaId) { return `relationship_score_${personaId}`; },
@@ -178,7 +190,9 @@ const HistoryModule = {
   },
   historyKey(personaId) { return `chat_history_${personaId}`; },
   save() {
-    localStorage.setItem(this.historyKey(State.currentPersonaId), JSON.stringify(State.history));
+    if (!safeLocalStorageSet(this.historyKey(State.currentPersonaId), JSON.stringify(State.history))) {
+      console.warn('История не поместилась в localStorage — последние сообщения могут не сохраниться после перезагрузки.');
+    }
     UI.updateModelHeader();
   },
   load(personaId) {
@@ -656,7 +670,33 @@ const UI = {
     State.personas.forEach(p => {
       const row = document.createElement('div');
       row.className = 'persona-list-item' + (p.id === State.currentPersonaId ? ' active' : '');
-      row.innerHTML = `<img src="${p.avatar || DEFAULT_AVATAR}" class="persona-list-avatar"><span class="persona-list-name">${p.name}</span><div class="persona-list-actions"><button class="action-btn" onclick="UI.selectPersona('${p.id}')">Выбрать</button><button class="action-btn" onclick="UI.loadPersonaIntoForm('${p.id}')">✎</button></div>`;
+
+      const avatar = document.createElement('img');
+      avatar.className = 'persona-list-avatar';
+      avatar.src = p.avatar || DEFAULT_AVATAR;
+
+      const name = document.createElement('span');
+      name.className = 'persona-list-name';
+      name.textContent = p.name;
+
+      const actions = document.createElement('div');
+      actions.className = 'persona-list-actions';
+
+      const selectBtn = document.createElement('button');
+      selectBtn.className = 'action-btn';
+      selectBtn.textContent = 'Выбрать';
+      selectBtn.onclick = () => this.selectPersona(p.id);
+
+      const editBtn = document.createElement('button');
+      editBtn.className = 'action-btn';
+      editBtn.textContent = '✎';
+      editBtn.onclick = () => this.loadPersonaIntoForm(p.id);
+
+      actions.appendChild(selectBtn);
+      actions.appendChild(editBtn);
+      row.appendChild(avatar);
+      row.appendChild(name);
+      row.appendChild(actions);
       box.appendChild(row);
     });
   },
@@ -847,45 +887,78 @@ const UI = {
     row.className = `msg-row ${role}`;
     if (historyIdx !== null) row.dataset.historyIdx = historyIdx;
 
-    row.innerHTML = `
-      <img class="msg-avatar" src="${role === 'bot' ? State.companionAvatar : State.userAvatar}" onclick="UI.pickAvatar('${role}')">
-      <div class="msg-container">
-        <div class="msg ${extraClass}">${imgData ? `<img src="${imgData}" class="attached-img">` : ''}${renderSafeMarkdown(text)}</div>
-      </div>
-    `;
+    const avatar = document.createElement('img');
+    avatar.className = 'msg-avatar';
+    avatar.src = role === 'bot' ? State.companionAvatar : State.userAvatar;
+    avatar.onclick = () => this.pickAvatar(role);
 
-    const div = row.querySelector('.msg');
+    const container = document.createElement('div');
+    container.className = 'msg-container';
+
+    const div = document.createElement('div');
+    div.className = `msg ${extraClass}`;
+    let contentHtml = '';
+    if (imgData) contentHtml += `<img src="${imgData}" class="attached-img">`;
+    contentHtml += renderSafeMarkdown(text);
+    div.innerHTML = contentHtml;
+
     enhanceCodeBlocks(div);
     div.querySelectorAll('img').forEach(el => {
       el.style.cursor = 'zoom-in';
       el.onclick = () => this.openLightbox(el.src);
     });
 
+    container.appendChild(div);
+
     if (!extraClass.includes('thinking')) {
-      const container = row.querySelector('.msg-container');
-      const actions = document.createElement('div');
-      actions.className = 'msg-actions';
-      if (role === 'bot') {
-        actions.innerHTML = `<button class="action-btn" onclick="SpeechModule.speak(\`${text.replace(/`/g, '\\`')}\`)">🔊 Озвучить</button><button class="action-btn" onclick="navigator.clipboard.writeText(\`${text.replace(/`/g, '\\`')}\`)">📋 Копировать</button>`;
-      }
-      container.appendChild(actions);
+      container.appendChild(this._buildMessageActions(role, text));
     }
 
+    row.appendChild(avatar);
+    row.appendChild(container);
     box.appendChild(row);
     box.scrollTop = box.scrollHeight;
     return { row, div };
+  },
+
+  // Кнопки "озвучить"/"копировать" под сообщением. Строятся через DOM, а не строкой
+  // HTML с текстом внутри onclick="..." — иначе кавычка или обратный слэш в тексте
+  // модели/пользователя могли бы вырваться из атрибута и выполнить произвольный JS.
+  _buildMessageActions(role, text) {
+    const actions = document.createElement('div');
+    actions.className = 'msg-actions';
+    if (role === 'bot') {
+      const speakBtn = document.createElement('button');
+      speakBtn.className = 'action-btn';
+      speakBtn.textContent = '🔊 Озвучить';
+      speakBtn.onclick = () => SpeechModule.speak(text);
+
+      const copyBtn = document.createElement('button');
+      copyBtn.className = 'action-btn';
+      copyBtn.textContent = '📋 Копировать';
+      copyBtn.onclick = () => {
+        navigator.clipboard.writeText(text);
+        copyBtn.textContent = '✅ Скопировано';
+        setTimeout(() => { copyBtn.textContent = '📋 Копировать'; }, 1200);
+      };
+
+      actions.appendChild(speakBtn);
+      actions.appendChild(copyBtn);
+    }
+    return actions;
   },
 
   finalizeStreamedMessage(row, div, text, historyIdx) {
     div.className = 'msg';
     div.innerHTML = renderSafeMarkdown(text);
     enhanceCodeBlocks(div);
+    div.querySelectorAll('img').forEach(el => {
+      el.style.cursor = 'zoom-in';
+      el.onclick = () => this.openLightbox(el.src);
+    });
     if (historyIdx !== null) row.dataset.historyIdx = historyIdx;
     const container = row.querySelector('.msg-container');
-    const actions = document.createElement('div');
-    actions.className = 'msg-actions';
-    actions.innerHTML = `<button class="action-btn" onclick="SpeechModule.speak(\`${text.replace(/`/g, '\\`')}\`)">🔊 Озвучить</button><button class="action-btn" onclick="navigator.clipboard.writeText(\`${text.replace(/`/g, '\\`')}\`)">📋 Копировать</button>`;
-    container.appendChild(actions);
+    container.appendChild(this._buildMessageActions('bot', text));
   },
 
   stopGeneration() { APIModule.abortCurrentRequest(); },
@@ -907,8 +980,21 @@ const UI = {
     const box = document.getElementById('galleryGrid');
     box.innerHTML = '';
     const images = this.collectGalleryImages();
-    if (!images.length) box.innerHTML = '<p style="color:var(--text-faint); font-size:13px;">Нет изображений.</p>';
-    else images.forEach(src => { box.innerHTML += `<img class="gallery-thumb" src="${src}" onclick="UI.openLightbox('${src}')">`; });
+    if (!images.length) {
+      const empty = document.createElement('p');
+      empty.style.cssText = 'color:var(--text-faint); font-size:13px;';
+      empty.textContent = 'Нет изображений.';
+      box.appendChild(empty);
+    } else {
+      images.forEach(src => {
+        const img = document.createElement('img');
+        img.className = 'gallery-thumb';
+        img.src = src;
+        img.loading = 'lazy';
+        img.onclick = () => this.openLightbox(src);
+        box.appendChild(img);
+      });
+    }
     document.getElementById('galleryModal').style.display = 'flex';
   },
   closeGalleryModal() { document.getElementById('galleryModal').style.display = 'none'; },
@@ -919,11 +1005,31 @@ const UI = {
   openSearchModal() { document.getElementById('searchModal').style.display = 'flex'; setTimeout(() => document.getElementById('searchInput').focus(), 50); },
   closeSearchModal() { document.getElementById('searchModal').style.display = 'none'; },
 
+  // Раньше текст сообщения (snippet) вставлялся напрямую в innerHTML — если модель или
+  // пользователь когда-либо написали HTML-разметку в сообщении, она бы выполнилась в
+  // поиске. Строим результаты через textContent, это безопасно в любом случае.
   runSearch(query) {
     const box = document.getElementById('searchResults');
     box.innerHTML = '';
-    HistoryModule.search(query).forEach(r => {
-      box.innerHTML += `<div class="search-result-item" onclick="UI.jumpToMessage(${r.idx})"><span class="search-result-role">${r.role}:</span> ${r.snippet}</div>`;
+    if (!query.trim()) return;
+    const results = HistoryModule.search(query);
+    if (!results.length) {
+      const empty = document.createElement('p');
+      empty.style.cssText = 'color:var(--text-faint); font-size:13px;';
+      empty.textContent = 'Ничего не найдено.';
+      box.appendChild(empty);
+      return;
+    }
+    results.forEach(r => {
+      const item = document.createElement('div');
+      item.className = 'search-result-item';
+      const roleSpan = document.createElement('span');
+      roleSpan.className = 'search-result-role';
+      roleSpan.textContent = ((r.role === 'assistant' || r.role === 'model') ? 'Amity' : 'Ты') + ': ';
+      item.appendChild(roleSpan);
+      item.appendChild(document.createTextNode(r.snippet));
+      item.onclick = () => this.jumpToMessage(r.idx);
+      box.appendChild(item);
     });
   },
 
@@ -972,14 +1078,18 @@ const UI = {
   handleAvatarSelect(e) {
     const file = e.target.files[0]; if (!file) return;
     const reader = new FileReader();
+    reader.onerror = () => alert('Не удалось прочитать файл.');
     reader.onload = (evt) => {
       if (this.targetRoleForAvatar === 'bot') {
         const p = State.getCurrentPersona();
-        if (p) { p.avatar = evt.target.result; State.savePersonas(); }
+        if (p) {
+          p.avatar = evt.target.result;
+          if (!State.savePersonas()) alert('Аватар применён, но слишком велик для сохранения — после перезагрузки страницы придётся выбрать его заново.');
+        }
         State.companionAvatar = evt.target.result;
       } else {
         State.userAvatar = evt.target.result;
-        localStorage.setItem('user_avatar', State.userAvatar);
+        if (!safeLocalStorageSet('user_avatar', State.userAvatar)) alert('Аватар применён, но слишком велик для сохранения — после перезагрузки страницы придётся выбрать его заново.');
       }
       this.updateAvatarImages();
     };
@@ -993,38 +1103,72 @@ const UI = {
   },
 
   pickBackground() { document.getElementById('bgPicker').click(); },
+
+  // Пытается сохранить значение в localStorage; если квота превышена (частый случай
+  // с крупными фото в base64) — не роняет приложение, а честно предупреждает пользователя.
+  _safeSetItem(key, value) { return safeLocalStorageSet(key, value); },
+
   handleBgSelect(e) {
-    const file = e.target.files[0]; if (!file) return;
+    const file = e.target.files[0];
+    e.target.value = ''; // чтобы повторный выбор того же файла тоже сработал (иначе change не сработает)
+    if (!file) return;
+
+    const MAX_MB = 8;
+    if (file.size > MAX_MB * 1024 * 1024) {
+      alert(`Файл слишком большой (${(file.size / 1024 / 1024).toFixed(1)} МБ). Выбери файл до ${MAX_MB} МБ — иначе он не влезет в память браузера.`);
+      return;
+    }
+
     const reader = new FileReader();
+    reader.onerror = () => alert('Не удалось прочитать файл. Попробуй другое изображение.');
     reader.onload = (evt) => {
-      if (file.type.startsWith('video/')) {
-        State.bgVideoUrl = evt.target.result; State.bgImage = "";
-        localStorage.setItem('chat_bg_video', State.bgVideoUrl); localStorage.removeItem('chat_bg');
+      const isVideo = file.type.startsWith('video/');
+      if (isVideo) {
+        State.bgVideoUrl = evt.target.result;
+        State.bgImage = "";
+        const saved = this._safeSetItem('chat_bg_video', State.bgVideoUrl);
+        localStorage.removeItem('chat_bg');
+        if (!saved) alert('Фон-видео применён, но слишком велик, чтобы сохраниться — после перезагрузки страницы придётся выбрать его заново.');
       } else {
-        State.bgImage = evt.target.result; State.bgVideoUrl = "";
-        localStorage.setItem('chat_bg', State.bgImage); localStorage.removeItem('chat_bg_video');
+        State.bgImage = evt.target.result;
+        State.bgVideoUrl = "";
+        const saved = this._safeSetItem('chat_bg', State.bgImage);
+        localStorage.removeItem('chat_bg_video');
+        if (!saved) alert('Фон применён, но слишком велик, чтобы сохраниться — после перезагрузки страницы придётся выбрать его заново.');
       }
       this.applyBackground();
     };
     reader.readAsDataURL(file);
   },
 
+  // ВАЖНО: раньше фон применялся к document.body — но поверх body в разметке лежит
+  // .os-background-wrap (декоративный слой со сферами/частицами) на весь экран,
+  // и он полностью перекрывал собой любую картинку, выставленную на body.
+  // Теперь фон применяется к самому .os-background-wrap, а декоративные сферы
+  // и частицы на время скрываются, чтобы не мешать пользовательскому фото.
   applyBackground() {
+    const wrap = document.querySelector('.os-background-wrap');
     const videoEl = document.getElementById('bgVideo');
+
     if (State.bgVideoUrl && videoEl) {
-      videoEl.src = State.bgVideoUrl; videoEl.style.display = 'block';
-    } else if (State.bgImage) {
-      if (videoEl) videoEl.style.display = 'none';
-      document.body.style.backgroundImage = `linear-gradient(rgba(0,0,0,0.7), rgba(0,0,0,0.7)), url(${State.bgImage})`;
+      videoEl.src = State.bgVideoUrl;
+      videoEl.style.display = 'block';
+      if (wrap) { wrap.classList.remove('custom-bg-active'); wrap.style.backgroundImage = ''; }
+    } else if (State.bgImage && wrap) {
+      if (videoEl) { videoEl.pause(); videoEl.removeAttribute('src'); videoEl.load(); videoEl.style.display = 'none'; }
+      wrap.classList.add('custom-bg-active');
+      wrap.style.backgroundImage = `linear-gradient(rgba(0,0,0,0.55), rgba(0,0,0,0.55)), url("${State.bgImage}")`;
     } else {
-      if (videoEl) videoEl.style.display = 'none';
-      document.body.style.backgroundImage = 'none';
+      if (videoEl) { videoEl.pause(); videoEl.removeAttribute('src'); videoEl.load(); videoEl.style.display = 'none'; }
+      if (wrap) { wrap.classList.remove('custom-bg-active'); wrap.style.backgroundImage = ''; }
     }
   },
 
   resetBackground() {
-    State.bgImage = ""; State.bgVideoUrl = "";
-    localStorage.removeItem('chat_bg'); localStorage.removeItem('chat_bg_video');
+    State.bgImage = "";
+    State.bgVideoUrl = "";
+    localStorage.removeItem('chat_bg');
+    localStorage.removeItem('chat_bg_video');
     this.applyBackground();
   },
 
