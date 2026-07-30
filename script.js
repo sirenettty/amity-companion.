@@ -1,5 +1,5 @@
 /* ==========================================================================
-   ИИ-КОМПАНЬОН AMITY — МОДУЛЬНЫЙ СКРИПТ (COMPANION OS v2)
+   ИИ-КОМПАНЬОН AMITY — МОДУЛЬНЫЙ СКРИПТ (COMPANION OS v3)
    ========================================================================== */
 
 const DEFAULT_PERSONAS = [
@@ -97,7 +97,7 @@ const State = {
 
   provider: 'groq',
   history: [],
-  currentEmotion: '😊 Рада видеть',
+  currentEmotion: 'В сети',
   attachedImageBase64: null,
   attachedDocText: null,
   attachedDocName: null,
@@ -191,7 +191,6 @@ const HistoryModule = {
     if (!safeLocalStorageSet(this.historyKey(State.currentPersonaId), JSON.stringify(State.history))) {
       console.warn('История не поместилась в localStorage — последние сообщения могут не сохраниться после перезагрузки.');
     }
-    UI.updateModelHeader();
   },
   load(personaId) {
     const saved = localStorage.getItem(this.historyKey(personaId));
@@ -510,10 +509,10 @@ const UI = {
     this.applyBackground();
     this.updatePersonaHeader();
     this.refreshPersonaDropdown();
-    this.updateRelationshipUI();
     this.setEmotion('В сети');
 
-    document.getElementById('soundToggleBtn').textContent = State.soundEnabled ? '🔔 Звук: Вкл' : '🔕 Звук: Выкл';
+    const soundToggleBtn = document.getElementById('soundToggleBtn');
+    if (soundToggleBtn) soundToggleBtn.textContent = State.soundEnabled ? '🔔 Звук: Вкл' : '🔕 Звук: Выкл';
 
     document.getElementById('filePicker').addEventListener('change', (e) => this.handleAvatarSelect(e));
     document.getElementById('bgPicker').addEventListener('change', (e) => this.handleBgSelect(e));
@@ -559,7 +558,6 @@ const UI = {
       HistoryModule.load(State.currentPersonaId);
       document.getElementById('setup').style.display = 'none';
       document.getElementById('chat').style.display = 'flex';
-      this.updateModelHeader();
       this.renderHistory();
     }
   },
@@ -640,7 +638,6 @@ const UI = {
     HistoryModule.load(id);
     this.updatePersonaHeader();
     this.refreshPersonaDropdown();
-    this.updateRelationshipUI();
     this.renderHistory();
     if (announce) this.addMessageRow('bot', `🎭 **Переключились на:** ${p.name}`);
   },
@@ -758,33 +755,33 @@ const UI = {
 
     switch (statusType) {
       case 'Печатает…':
-        badge.textContent = '✍️ Печатает…';
+        badge.textContent = 'Печатает…';
         body.classList.add('emotion-thinking');
         body.dataset.emotion = 'thinking';
         break;
       case 'Думает':
-        badge.textContent = '💭 Думает';
+        badge.textContent = 'Думает';
         body.classList.add('emotion-thinking');
         body.dataset.emotion = 'thinking';
         break;
       case 'Отвечает':
-        badge.textContent = '⚡ Отвечает';
+        badge.textContent = 'Отвечает';
         body.classList.add('emotion-joy');
         body.dataset.emotion = 'joy';
         break;
       case 'Ожидает':
-        badge.textContent = '⏳ Ожидает';
+        badge.textContent = 'Ожидает';
         body.classList.add('emotion-warm');
         body.dataset.emotion = 'warm';
         break;
       case 'Ошибка':
-        badge.textContent = '⚠️ Ошибка';
+        badge.textContent = 'Ошибка';
         body.classList.add('emotion-error');
         body.dataset.emotion = 'error';
         break;
       case 'В сети':
       default:
-        badge.textContent = '🟢 В сети';
+        badge.textContent = 'В сети';
         body.classList.add('emotion-joy');
         body.dataset.emotion = 'joy';
         break;
@@ -801,16 +798,6 @@ const UI = {
       State.relationshipScore = Math.min(100, State.relationshipScore + 1);
     }
     State.saveRelationshipScore();
-    this.updateRelationshipUI();
-  },
-
-  updateRelationshipUI() {
-    const scoreEl = document.getElementById('relScore');
-    const fillEl = document.getElementById('relFill');
-    if (scoreEl && fillEl) {
-      scoreEl.textContent = State.relationshipScore;
-      fillEl.style.width = `${State.relationshipScore}%`;
-    }
   },
 
   toggleTheme() {
@@ -826,13 +813,6 @@ const UI = {
     }
     const btn = document.getElementById('themeToggleBtn');
     if (btn) btn.textContent = theme === 'dark' ? '🌙' : '☀️';
-  },
-
-  updateModelHeader() {
-    const badge = document.getElementById('modelBadge');
-    const status = document.getElementById('statusLine');
-    status.textContent = `онлайн | ~${HistoryModule.estimateTokens()} ток.`;
-    badge.textContent = State.provider === 'gemini' ? '🌐 Gemini' : (State.provider === 'ollama' ? `🦙 Ollama (${State.ollamaModelName})` : '🌐 Groq/OpenAI');
   },
 
   setThinkingState(isBusy) {
@@ -876,7 +856,6 @@ const UI = {
     HistoryModule.init();
     document.getElementById('setup').style.display = 'none';
     document.getElementById('chat').style.display = 'flex';
-    this.updateModelHeader();
     this.setEmotion('В сети');
     this.addMessageRow('bot', `Привет, ${userName}! Я Amity, твоя личная цифровая подруга. Мне очень приятно познакомиться с тобой. Я уже немного узнала о твоих интересах, и мне кажется, нам будет интересно общаться вместе. Как твой день? 😊`);
   },
@@ -894,6 +873,7 @@ const UI = {
     HistoryModule.save();
     this.setEmotion('В сети');
     this.addMessageRow('bot', 'Чат очищен. Начнем сначала? ✨');
+    this.closeSettingsModal();
   },
 
   renderHistory() {
@@ -1265,7 +1245,7 @@ const SettingsModule = {
   save() {
     State.temperature = parseFloat(document.getElementById('tempRange').value);
     State.systemPrompt = document.getElementById('systemPromptInput').value;
-    State.longTermMemory = document.getElementById('longTermMemoryInput'].value;
+    State.longTermMemory = document.getElementById('longTermMemoryInput').value;
     State.selectedVoiceURI = document.getElementById('voiceSelect').value;
 
     if (State.provider === 'ollama') {
@@ -1282,7 +1262,6 @@ const SettingsModule = {
     localStorage.setItem('selected_voice_uri', State.selectedVoiceURI);
     HistoryModule.save();
     UI.closeSettingsModal();
-    UI.updateModelHeader();
   }
 };
 

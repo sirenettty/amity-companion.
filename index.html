@@ -94,6 +94,16 @@
     <div class="modal">
       <button class="modal-close" onclick="UI.closeSettingsModal()">×</button>
       <h3 style="margin-top:0;">⚙️ Настройки Компаньона</h3>
+      
+      <!-- Управление чатом (Перенесено из шапки) -->
+      <div class="tts-section">
+        <label style="color: var(--primary); font-weight: bold;">🗑️ Управление чатом:</label>
+        <div class="btn-grid" style="margin-top:0;">
+          <button class="header-btn" style="color: #f43f5e;" onclick="UI.clearHistoryUI()">🗑️ Очистить чат</button>
+          <button class="header-btn" style="color: #f43f5e;" onclick="UI.resetKey()">Сброс ключа/системы</button>
+        </div>
+      </div>
+
       <div class="tts-section">
         <label style="color: var(--primary); font-weight: bold;">🎨 Оформление и звук:</label>
         <div class="btn-grid" style="margin-top:0;">
@@ -189,32 +199,39 @@
   <!-- MAIN CHAT INTERFACE -->
   <div id="chat">
     <header>
-      <div class="avatar-live-wrapper" onclick="UI.pickAvatar('bot')" title="Сменить аватар">
-        <img id="headerAvatar" class="header-avatar" src="">
-      </div>
-      <div class="header-info">
-        <div class="header-title-row">
-          <h2 id="botNameTitle">Amity</h2>
-          <span id="botEmotion" class="emotion-badge">😊 Рада видеть</span>
-          <span id="modelBadge" class="model-badge">🌐 Groq</span>
+      <!-- Слева: аватар, имя, статус -->
+      <div class="header-left-cluster">
+        <div class="avatar-live-wrapper" onclick="UI.pickAvatar('bot')" title="Сменить аватар">
+          <img id="headerAvatar" class="header-avatar" src="">
         </div>
-        <div class="status" id="statusLine">готово | 0 токенов</div>
-      </div>
-      <div class="header-game-box">
-        <div class="relationship-container" title="Уровень лояльности и доверия">
-          <span class="rel-label">Лояльность: <b id="relScore">50</b>%</span>
-          <div class="rel-bar"><div id="relFill" class="rel-fill" style="width: 50%;"></div></div>
+        <div class="header-info">
+          <div class="header-title-row">
+            <h2 id="botNameTitle">Amity</h2>
+          </div>
+          <div class="header-status-row">
+            <span id="statusIndicatorDot" class="status-indicator-dot"></span>
+            <span id="botEmotion" class="emotion-badge">В сети</span>
+          </div>
         </div>
-        <select id="personaSelect" class="persona-dropdown" onchange="UI.selectPersona(this.value)"></select>
-        <button class="header-btn" onclick="UI.openPersonaModal()">✎ Персоны</button>
       </div>
+
+      <!-- По центру: выбор персоны -->
+      <div class="header-center-cluster">
+        <div class="header-game-box">
+          <select id="personaSelect" class="persona-dropdown" onchange="UI.selectPersona(this.value)" title="Выбор персоны"></select>
+          <button class="header-btn persona-edit-btn" onclick="UI.openPersonaModal()" title="Редактировать персоны">✎</button>
+        </div>
+      </div>
+
       <div class="header-spacer"></div>
-      <button class="header-btn theme-toggle" id="themeToggleBtn" onclick="UI.toggleTheme()" title="День/Ночь">🌙</button>
-      <button class="header-btn" onclick="UI.openGalleryModal()" title="Галерея">🖼️ Галерея</button>
-      <button class="header-btn" onclick="UI.openSearchModal()" title="Поиск">🔍 Поиск</button>
-      <button class="header-btn" onclick="UI.openSettingsModal()">⚙️ Настройки</button>
-      <button class="header-btn" onclick="UI.clearHistoryUI()" title="Очистить">🗑️</button>
-      <button class="header-btn" onclick="UI.resetKey()">Сброс</button>
+
+      <!-- Справа: поиск, галерея, настройки, тема -->
+      <div class="header-right-cluster">
+        <button class="header-btn icon-only-btn" onclick="UI.openSearchModal()" title="Поиск">🔍</button>
+        <button class="header-btn icon-only-btn" onclick="UI.openGalleryModal()" title="Галерея">🖼️</button>
+        <button class="header-btn icon-only-btn" onclick="UI.openSettingsModal()" title="Настройки">⚙️</button>
+        <button class="header-btn theme-toggle icon-only-btn" id="themeToggleBtn" onclick="UI.toggleTheme()" title="День/Ночь">🌙</button>
+      </div>
     </header>
     
     <div id="messages"></div>
